@@ -1,22 +1,36 @@
 #!/usr/bin/python
 
-import sys, math, os, string, time, argparse, json, subprocess
-import httplib
+import argparse
 import base64
+import httplib
+import json
+import math
+import os
+import re
+import string
 import StringIO
+import subprocess
+import sys
+import thread
+import time
 
-try:
-    import PIL
-    from PIL import Image, ImageChops
-except Exception as e:
-    print('No PIL, please install "python-imaging-library" if on OpenWrt')
-    sys.exit(1)
+from flask import Flask, jsonify, send_from_directory
+from PIL import Image, ImageChops
 
-timeflt = lambda: time.time()
 
 THRESH_0 = 20.0
 THRESH_1 = 40.0
 THRESH_2 = 60.0
+
+SAVE_DIR = "/data/motionLog"
+PHOTO_NAME_RE = re.compile("motion-(.*)\.jpg")
+MAX_LATEST = 40
+
+MAX_PREFIX_LEN = 8
+MAC_PREFIXES = set(['28:10:7b', 'b0:c5:54', '01:b0:c5'])
+
+server = Flask(__name__)
+
 
 def setupArgParse():
     p = argparse.ArgumentParser(description='SecCam security suite')
@@ -24,6 +38,7 @@ def setupArgParse():
     p.add_argument('-m_sec', help='How much time to wait between motion images', type=float, default=2.0)
     p.add_argument('-m_sensitivity', help='How sensitive the motion capture should be, 0=very, 1=somewhat, 2=not very', type=int, default=0)
     return p
+
 
 def getImage(ip):
     """Gets the file from the specified host, port and location/query"""
@@ -56,6 +71,7 @@ def getImage(ip):
         print('!! Failed to connect to webcam: %s' % str(e))
         return None
 
+
 def detectMotion(img1, jpg2):
     """
             Detects motion using a simple difference algorithm.
@@ -72,7 +88,7 @@ def detectMotion(img1, jpg2):
 
     #Convert to Image so we can compare them using PIL
     try:
-        jpg1 = PIL.Image.open(img1)
+        jpg1 = Image.open(img1)
     except Exception as e:
         print('jpg1: %s' % str(e))
         return None
@@ -81,7 +97,7 @@ def detectMotion(img1, jpg2):
         return (None, jpg1)
 
     # Now compute the difference
-    diff = PIL.ImageChops.difference(jpg1, jpg2)
+    diff = ImageChops.difference(jpg1, jpg2)
     h = diff.histogram()
     sq = (value*((idx%256)**2) for idx, value in enumerate(h))
     sum_sqs = sum(sq)
@@ -89,15 +105,54 @@ def detectMotion(img1, jpg2):
     return (rms,jpg1)
 
 
+@server.route('/motionLog/<path:path>')
+def GET_motionLog(path):
+    return send_from_directory(SAVE_DIR, path)
+
+
+@server.route('/photos')
+def GET_photos():
+    photos = []
+    for fname in os.listdir(SAVE_DIR):
+        match = PHOTO_NAME_RE.match(fname)
+        if match is None:
+            continue
+
+        ts = match.group(1)
+        try:
+            ts = float(ts)
+        except:
+            pass
+
+        photos.append({
+            'path': os.path.join('motionLog', fname),
+            'ts': ts
+        })
+
+    photos.sort(key=operator.itemgetter('ts'))
+    return jsonify(photos[:MAX_LATEST])
+
+
+@server.route('/<path:path>')
+def GET_root():
+    return send_from_directory('web/app-dist', path)
+
 
 if(__name__ == "__main__"):
+    # Run the web server in a separate thread.
+    thread.start_new_thread(server.run, ())
+
+    # Make sure the photo directory exists.
+    if not os.path.isdir(SAVE_DIR):
+        os.makedirs(SAVE_DIR)
+
     p = setupArgParse()
     args = p.parse_args()
 
     calib = args.calibrate
     m_sec = args.m_sec
     sens = args.m_sensitivity
-    m_save = '/var/www/html/motionLog/motion-'
+    m_save = os.path.join(SAVE_DIR, "motion-")
 
     if(m_sec < 1.0):
         print('** For the workshop, please do not use lower than 1.0 for m_sec')
@@ -122,53 +177,60 @@ if(__name__ == "__main__"):
     ## Determine IP address
     #######################################################################
     # make sure apr table contains all devices
-    # Get the subnet of paradrop
-    subnet = ""
     ip = ""
     while(ip == ""):
-        try:
+        with open("/paradrop/dnsmasq-wifi.leases", "r") as source:
+            for line in source:
+                parts = line.split()
+                mac = parts[1]
 
-            # Get the subnet if haven't yet
-            if (subnet == ""):
-                cmd = "ifconfig -a | grep 'inet addr:192.168' | awk '{print $2}' | egrep -o '([0-9]+\.){2}[0-9]+'"
-                p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-                output, errors = p.communicate()
-                if (output != ""):
-                    subnet = output.rstrip()
+                if mac[:MAC_PREFIX_LEN] in MAC_PREFIXES:
+                    ip = parts[2]
+                    break
 
-                    # Add a . after 192.168.xxx
-                    subnet = subnet + '.'
-                    print "subnet: " + subnet
-
-            # Prevent race condition by running this in the loop to put the device on the arp table
-            cmd = "echo $(seq 100 200) | xargs -P255 -I% -d' ' ping -W 1 -c 1 " + subnet + "% | grep -E '[0-1].*?:'"
-            p2 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-            output2, errors2 = p2.communicate()
-
-            # Search arp for leading mac address bits
-            cmd="arp -a | grep -e '28:10:7b' -e 'b0:c5:54' -e '01:b0:c5' | awk '{print $2}' | egrep -o '([0-9]+\.){3}[0-9]+'"
-            p3 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-            output3, errors3 = p3.communicate()
-
-            if (output3 != ""):
-                print "output3: '" + output3 + "'"
-                ip = output3.rstrip()
-
-                # Set iptables for wan port access
-                cmd="iptables -t nat -A PREROUTING -p tcp --dport 81 -j DNAT --to-destination " + ip + ":80"
-                print "cmd: " + cmd
-                p4 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-                output4, errors4 = p4.communicate()
-                cmd="iptables -t nat -A POSTROUTING -p tcp -d " + ip + " --dport 81 -j MASQUERADE"
-                print "cmd: " + cmd
-                p5 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-                output5, errors5 = p5.communicate()
-
-        except KeyboardInterrupt:
-            break
-        except Exception as e:
-            print('!! error: %s' % str(e))
-            time.sleep(m_sec)
+#        try:
+#
+#            # Get the subnet if haven't yet
+#            if (subnet == ""):
+#                cmd = "ifconfig -a | grep 'inet addr:192.168' | awk '{print $2}' | egrep -o '([0-9]+\.){2}[0-9]+'"
+#                p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+#                output, errors = p.communicate()
+#                if (output != ""):
+#                    subnet = output.rstrip()
+#
+#                    # Add a . after 192.168.xxx
+#                    subnet = subnet + '.'
+#                    print "subnet: " + subnet
+#
+#            # Prevent race condition by running this in the loop to put the device on the arp table
+#            cmd = "echo $(seq 100 200) | xargs -P255 -I% -d' ' ping -W 1 -c 1 " + subnet + "% | grep -E '[0-1].*?:'"
+#            p2 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+#            output2, errors2 = p2.communicate()
+#
+#            # Search arp for leading mac address bits
+#            cmd="arp -a | grep -e '28:10:7b' -e 'b0:c5:54' -e '01:b0:c5' | awk '{print $2}' | egrep -o '([0-9]+\.){3}[0-9]+'"
+#            p3 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+#            output3, errors3 = p3.communicate()
+#
+#            if (output3 != ""):
+#                print "output3: '" + output3 + "'"
+#                ip = output3.rstrip()
+#
+#                # Set iptables for wan port access
+#                cmd="iptables -t nat -A PREROUTING -p tcp --dport 81 -j DNAT --to-destination " + ip + ":80"
+#                print "cmd: " + cmd
+#                p4 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+#                output4, errors4 = p4.communicate()
+#                cmd="iptables -t nat -A POSTROUTING -p tcp -d " + ip + " --dport 81 -j MASQUERADE"
+#                print "cmd: " + cmd
+#                p5 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
+#                output5, errors5 = p5.communicate()
+#
+#        except KeyboardInterrupt:
+#            break
+#        except Exception as e:
+#            print('!! error: %s' % str(e))
+#            time.sleep(m_sec)
 
     print("Found IP %s" % ip)
 
