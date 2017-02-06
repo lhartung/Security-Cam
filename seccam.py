@@ -5,6 +5,7 @@ import base64
 import httplib
 import json
 import math
+import operator
 import os
 import re
 import string
@@ -26,7 +27,7 @@ SAVE_DIR = "/data/motionLog"
 PHOTO_NAME_RE = re.compile("motion-(.*)\.jpg")
 MAX_LATEST = 40
 
-MAX_PREFIX_LEN = 8
+MAC_PREFIX_LEN = 8
 MAC_PREFIXES = set(['28:10:7b', 'b0:c5:54', '01:b0:c5'])
 
 server = Flask(__name__)
@@ -134,7 +135,7 @@ def GET_photos():
 
 
 @server.route('/<path:path>')
-def GET_root():
+def GET_root(path):
     return send_from_directory('web/app-dist', path)
 
 
