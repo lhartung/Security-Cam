@@ -1,16 +1,14 @@
 #!/usr/bin/python
+from __future__ import print_function
 
 import argparse
 import base64
 import httplib
-import json
 import math
 import operator
 import os
 import re
-import string
 import StringIO
-import subprocess
 import sys
 import thread
 import time
@@ -28,7 +26,7 @@ PARADROP_SYSTEM_DIR = os.environ.get("PARADROP_SYSTEM_DIR", "/tmp")
 
 SAVE_DIR = os.path.join(PARADROP_DATA_DIR, "motionLog")
 LEASES_FILE = os.path.join(PARADROP_SYSTEM_DIR, "dnsmasq-wifi.leases")
-PHOTO_NAME_RE = re.compile("motion-(.*)\.jpg")
+PHOTO_NAME_RE = re.compile(r"motion-(.*)\.jpg")
 MAX_LATEST = 40
 
 MAC_PREFIX_LEN = 8
@@ -51,9 +49,9 @@ def getImage(ip):
         # Here is a portion of the URL
         #######################################################################
         # TODO1 : Send a HTTP GET Request to the WebCam
-        # (with Username:'admin' and Password:''). 
-        # We recommend using the httplib package 
-        h = httplib.HTTP(ip, 80) 
+        # (with Username:'admin' and Password:'').
+        # We recommend using the httplib package
+        h = httplib.HTTP(ip, 80)
         h.putrequest('GET', '/image.jpg')
         h.putheader('Host', ip)
         h.putheader('User-agent', 'python-httplib')
@@ -62,11 +60,11 @@ def getImage(ip):
         h.endheaders()
 
         (returncode, returnmsg, headers) = h.getreply()
-        print "return code:",returncode
-        print "return message:",returnmsg
-        print "headers:",headers
+        print("return code:", returncode)
+        print("return message:", returnmsg)
+        print("headers:", headers)
         if returncode != 200:
-            print returncode, returnmsg
+            print(returncode, returnmsg)
             sys.exit()
 
         f = h.getfile()
@@ -88,7 +86,7 @@ def detectMotion(img1, jpg2):
                     (None, JPG) if jpg2 is None, we convert img1 into a JPG object and return that
                     (RMS, JPG) if img difference successful
     """
-    if(not img1):
+    if not img1:
         return None
 
     #Convert to Image so we can compare them using PIL
@@ -98,7 +96,7 @@ def detectMotion(img1, jpg2):
         print('jpg1: %s' % str(e))
         return None
 
-    if(not jpg2):
+    if not jpg2:
         return (None, jpg1)
 
     # Now compute the difference
@@ -107,7 +105,7 @@ def detectMotion(img1, jpg2):
     sq = (value*((idx%256)**2) for idx, value in enumerate(h))
     sum_sqs = sum(sq)
     rms = math.sqrt(sum_sqs / float(jpg1.size[0] * jpg1.size[1]))
-    return (rms,jpg1)
+    return (rms, jpg1)
 
 
 @server.route('/motionLog/<path:path>')
@@ -126,7 +124,7 @@ def GET_photos():
         ts = match.group(1)
         try:
             ts = float(ts)
-        except:
+        except ValueError:
             pass
 
         photos.append({
@@ -143,7 +141,7 @@ def GET_root(path):
     return send_from_directory('web/app-dist', path)
 
 
-if(__name__ == "__main__"):
+if __name__ == "__main__":
     # Run the web server in a separate thread.
     thread.start_new_thread(server.run, ())
 
@@ -159,19 +157,19 @@ if(__name__ == "__main__"):
     sens = args.m_sensitivity
     m_save = os.path.join(SAVE_DIR, "motion-")
 
-    if(m_sec < 1.0):
+    if m_sec < 1.0:
         print('** For the workshop, please do not use lower than 1.0 for m_sec')
         exit()
 
     #Setup threshold for motion
     #very sensitive
-    if(sens == 0):
+    if sens == 0:
         thresh = THRESH_0
     #kind of sensitive
-    elif(sens == 1):
+    elif sens == 1:
         thresh = THRESH_1
     #not very sensitive
-    elif(sens == 2):
+    elif sens == 2:
         thresh = THRESH_2
     else:
         raise Exception('InvalidParam', 'm_sensitivity')
@@ -198,75 +196,31 @@ if(__name__ == "__main__"):
 
         time.sleep(m_sec)
 
-#        try:
-#
-#            # Get the subnet if haven't yet
-#            if (subnet == ""):
-#                cmd = "ifconfig -a | grep 'inet addr:192.168' | awk '{print $2}' | egrep -o '([0-9]+\.){2}[0-9]+'"
-#                p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-#                output, errors = p.communicate()
-#                if (output != ""):
-#                    subnet = output.rstrip()
-#
-#                    # Add a . after 192.168.xxx
-#                    subnet = subnet + '.'
-#                    print "subnet: " + subnet
-#
-#            # Prevent race condition by running this in the loop to put the device on the arp table
-#            cmd = "echo $(seq 100 200) | xargs -P255 -I% -d' ' ping -W 1 -c 1 " + subnet + "% | grep -E '[0-1].*?:'"
-#            p2 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-#            output2, errors2 = p2.communicate()
-#
-#            # Search arp for leading mac address bits
-#            cmd="arp -a | grep -e '28:10:7b' -e 'b0:c5:54' -e '01:b0:c5' | awk '{print $2}' | egrep -o '([0-9]+\.){3}[0-9]+'"
-#            p3 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-#            output3, errors3 = p3.communicate()
-#
-#            if (output3 != ""):
-#                print "output3: '" + output3 + "'"
-#                ip = output3.rstrip()
-#
-#                # Set iptables for wan port access
-#                cmd="iptables -t nat -A PREROUTING -p tcp --dport 81 -j DNAT --to-destination " + ip + ":80"
-#                print "cmd: " + cmd
-#                p4 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-#                output4, errors4 = p4.communicate()
-#                cmd="iptables -t nat -A POSTROUTING -p tcp -d " + ip + " --dport 81 -j MASQUERADE"
-#                print "cmd: " + cmd
-#                p5 = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
-#                output5, errors5 = p5.communicate()
-#
-#        except KeyboardInterrupt:
-#            break
-#        except Exception as e:
-#            print('!! error: %s' % str(e))
-#            time.sleep(m_sec)
-
     print("Found IP %s" % ip)
 
     # Setup while loop requesting images from webcam
-    while(True):
+    while True:
         try:
             img = getImage(ip)
             # Did we get an image?
-            if(img is None):
+            if img is None:
                 print("** No image discovered")
                 time.sleep(m_sec)
                 continue
             else:
                 tup = detectMotion(img, oldjpg)
-                if(tup):
+                if tup:
                     # Explode the result
                     diff, jpg = tup
-                    if(calib):
+                    if calib:
                         print(diff)
-                    elif(diff):
+                    elif diff:
                         # if above a threshold, store it to file
                         #######################################################################
                         # TODO2 : Check the RMS difference and store the image to the proper
                         # location, for our webserver to read these files they should go
-                        # under the location /srv/www/motionlog/* 
-                        if(diff > thresh):
+                        # under the location /srv/www/motionlog/*
+                        if diff > thresh:
                             print("** Motion! %.3f" % diff)
                             fileName = "%s%d.jpg" % (m_save, time.time())
                             jpg.save(fileName)
