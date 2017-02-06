@@ -23,7 +23,11 @@ THRESH_0 = 20.0
 THRESH_1 = 40.0
 THRESH_2 = 60.0
 
-SAVE_DIR = "/data/motionLog"
+PARADROP_DATA_DIR = os.environ.get("PARADROP_DATA_DIR", "/tmp")
+PARADROP_SYSTEM_DIR = os.environ.get("PARADROP_SYSTEM_DIR", "/tmp")
+
+SAVE_DIR = os.path.join(PARADROP_DATA_DIR, "motionLog")
+LEASES_FILE = os.path.join(PARADROP_SYSTEM_DIR, "dnsmasq-wifi.leases")
 PHOTO_NAME_RE = re.compile("motion-(.*)\.jpg")
 MAX_LATEST = 40
 
@@ -178,16 +182,21 @@ if(__name__ == "__main__"):
     ## Determine IP address
     #######################################################################
     # make sure apr table contains all devices
-    ip = ""
-    while(ip == ""):
-        with open("/paradrop/dnsmasq-wifi.leases", "r") as source:
-            for line in source:
-                parts = line.split()
-                mac = parts[1]
+    ip = None
+    while ip is None:
+        try:
+            with open(LEASES_FILE, "r") as source:
+                for line in source:
+                    parts = line.split()
+                    mac = parts[1]
 
-                if mac[:MAC_PREFIX_LEN] in MAC_PREFIXES:
-                    ip = parts[2]
-                    break
+                    if mac[:MAC_PREFIX_LEN] in MAC_PREFIXES:
+                        ip = parts[2]
+                        break
+        except IOError as error:
+            print(error)
+
+        time.sleep(m_sec)
 
 #        try:
 #
