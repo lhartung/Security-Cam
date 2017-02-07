@@ -143,7 +143,7 @@ def GET_root(path):
 
 if __name__ == "__main__":
     # Run the web server in a separate thread.
-    thread.start_new_thread(server.run, ())
+    thread.start_new_thread(server.run, (), {'host': '0.0.0.0'})
 
     # Make sure the photo directory exists.
     if not os.path.isdir(SAVE_DIR):
