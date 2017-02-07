@@ -32,6 +32,7 @@ MAX_LATEST = 40
 MAC_PREFIX_LEN = 8
 MAC_PREFIXES = set(['28:10:7b', 'b0:c5:54', '01:b0:c5'])
 
+camera_address = None
 server = Flask(__name__)
 
 
@@ -108,6 +109,15 @@ def detectMotion(img1, jpg2):
     return (rms, jpg1)
 
 
+@server.route('/camera')
+def GET_camera():
+    data = {
+        'address': camera_address,
+        'videoURL': "http://{}/video.cgi".format(camera_address)
+    }
+    return jsonify(data)
+
+
 @server.route('/motionLog/<path:path>')
 def GET_motionLog(path):
     return send_from_directory(SAVE_DIR, path)
@@ -136,8 +146,13 @@ def GET_photos():
     return jsonify(photos[:MAX_LATEST])
 
 
+@server.route('/')
+def GET_root():
+    return send_from_directory('web/app-dist', 'index.html')
+
+
 @server.route('/<path:path>')
-def GET_root(path):
+def GET_dist(path):
     return send_from_directory('web/app-dist', path)
 
 
@@ -180,8 +195,7 @@ if __name__ == "__main__":
     ## Determine IP address
     #######################################################################
     # make sure apr table contains all devices
-    ip = None
-    while ip is None:
+    while camera_address is None:
         try:
             with open(LEASES_FILE, "r") as source:
                 for line in source:
@@ -189,19 +203,19 @@ if __name__ == "__main__":
                     mac = parts[1]
 
                     if mac[:MAC_PREFIX_LEN] in MAC_PREFIXES:
-                        ip = parts[2]
+                        camera_address = parts[2]
                         break
         except IOError as error:
             print(error)
 
         time.sleep(m_sec)
 
-    print("Found IP %s" % ip)
+    print("Found IP %s" % camera_address)
 
     # Setup while loop requesting images from webcam
     while True:
         try:
-            img = getImage(ip)
+            img = getImage(camera_address)
             # Did we get an image?
             if img is None:
                 print("** No image discovered")
