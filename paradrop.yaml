@@ -1,4 +1,0 @@
-version: 1
-type: light
-use: python2
-command: python -u seccam.py
