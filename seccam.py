@@ -178,7 +178,7 @@ def GET_photos():
             'ts': ts
         })
 
-    photos.sort(key=operator.itemgetter('ts'))
+    photos.sort(key=operator.itemgetter('ts'), reverse=True)
     return jsonify(photos[:MAX_LATEST])
 
 
