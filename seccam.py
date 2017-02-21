@@ -59,9 +59,6 @@ def getImage(ip):
         h.endheaders()
 
         (returncode, returnmsg, headers) = h.getreply()
-        print "return code:",returncode
-        print "return message:",returnmsg
-        print "headers:",headers
         if returncode != 200:
             print returncode, returnmsg
             sys.exit()
@@ -196,6 +193,10 @@ def GET_dist(path):
 
 
 if(__name__ == "__main__"):
+    # Make sure the photo directory exists.
+    if not os.path.isdir(SAVE_DIR):
+        os.makedirs(SAVE_DIR)
+
     # Run the web server in a separate thread.
     thread.start_new_thread(server.run, (), {'host': '0.0.0.0'})
 
